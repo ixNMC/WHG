@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Logística Puzzle - v.010</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Contenedor principal del juego -->
+    <div id="game-container">
+        <!-- Fondo -->
+        <div id="warehouse-background"></div>
+        
+        <!-- Lienzo del juego -->
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Botón de Pausa -->
+        <button id="pause-btn" class="hidden">
+            <div class="pause-bar"></div>
+            <div class="pause-bar"></div>
+        </button>
+
+        <!-- Capa de ventanas emergentes (Modales) -->
+        <div id="ui-layer">
+            
+            <!-- Modal de Inicio / Game Over -->
+            <div id="start-modal">
+                <h1 id="modal-title">LOGÍSTICA PUZZLE</h1>
+                <p id="modal-text">Prepara los pedidos antes de que acabe el tiempo.</p>
+                <button id="start-btn">START</button>
+            </div>
+
+            <!-- Modal de Pausa -->
+            <div id="pause-modal" class="hidden">
+                <h1 class="modal-title-pause">PARTIDA PAUSADA</h1>
+                <button id="resume-btn">REANUDAR PARTIDA</button>
+            </div>
+
+            <!-- NUEVO: Modal de Nivel Completado -->
+            <div id="level-modal" class="hidden">
+                <h1 id="level-title" style="color: #4ecca3; font-size: 22px; margin-bottom: 15px;"></h1>
+                <button id="next-level-btn">SIGUIENTE NIVEL</button>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>

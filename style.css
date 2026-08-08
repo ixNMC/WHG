@@ -1,0 +1,134 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: Arial, sans-serif;
+}
+
+#game-container {
+    position: relative;
+    width: 100%;
+    max-width: 480px; 
+    height: 100%;
+    max-height: 850px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#warehouse-background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=800&auto=format&fit=crop');
+    background-size: cover;
+    background-position: center;
+    filter: blur(8px) brightness(0.3);
+    z-index: 1;
+}
+
+canvas {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    left: 0;
+    transition: filter 0.3s ease; 
+}
+
+.canvas-blurred {
+    filter: blur(8px) brightness(0.7);
+    pointer-events: none; 
+}
+
+/* --- ESTILOS DEL BOTÓN DE PAUSA --- */
+#pause-btn {
+    position: absolute;
+    top: 10px;
+    left: 140px; /* MODIFICADO: Mover al lado del temporizador */
+    width: 45px;
+    height: 45px;
+    background-color: #fca311;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    z-index: 4; 
+    box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+    transition: transform 0.1s;
+}
+
+#pause-btn:active {
+    transform: scale(0.9);
+}
+
+.pause-bar {
+    width: 5px;
+    height: 18px;
+    background-color: #1a1a2e;
+    border-radius: 2px;
+}
+
+/* --- ESTILOS DE LA INTERFAZ UI --- */
+#ui-layer {
+    position: absolute;
+    z-index: 5; 
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.4); 
+    padding: 20px;
+}
+
+#start-modal, #pause-modal, #level-modal {
+    background-color: #1a1a2e;
+    padding: 30px;
+    border-radius: 12px;
+    text-align: center;
+    color: white;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    border: 2px solid #fca311;
+    width: 100%;
+    max-width: 350px;
+}
+
+#modal-title { font-size: 24px; margin-bottom: 10px; color: #fca311; }
+.modal-title-pause { font-size: 24px; margin-bottom: 20px; color: #4ecca3; }
+#modal-text { font-size: 16px; margin-bottom: 20px; }
+
+#start-btn, #resume-btn, #next-level-btn {
+    background-color: #4ecca3;
+    color: #1a1a2e;
+    border: none;
+    padding: 12px 20px;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.3s;
+    width: 100%;
+}
+
+#start-btn:hover, #resume-btn:hover, #next-level-btn:hover { background-color: #45b393; }
+
+.hidden { display: none !important; }
