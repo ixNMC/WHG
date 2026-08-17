@@ -1,7 +1,7 @@
 /**
  * Proyecto: Logística Puzzle
- * Versión: v.016
- * Descripción: Corrección del falso Game Over en el Nivel 2 (Race condition resuelta con bandera hasCollapsed).
+ * Versión: v.017
+ * Descripción: Implementación de la previsualización (Ghost Drop) transparente al arrastrar al ALMACÉN.
  */
 
 window.addEventListener('load', () => {
@@ -9,6 +9,7 @@ window.addEventListener('load', () => {
     const ctx = canvas.getContext('2d');
     const uiLayer = document.getElementById('ui-layer');
     
+    // Modales y Botones
     const startModal = document.getElementById('start-modal');
     const pauseModal = document.getElementById('pause-modal');
     const levelModal = document.getElementById('level-modal');
@@ -17,6 +18,7 @@ window.addEventListener('load', () => {
     const nextLevelBtn = document.getElementById('next-level-btn');
     const pauseBtn = document.getElementById('pause-btn');
     
+    // Textos
     const modalTitle = document.getElementById('modal-title');
     const modalText = document.getElementById('modal-text');
     const levelTitle = document.getElementById('level-title');
@@ -31,7 +33,6 @@ window.addEventListener('load', () => {
     let gameTimeLeft = 60; 
     let lastTime = 0;
     
-    // Bandera Centinela para detectar colapso real
     let hasCollapsed = false;
     
     // --- VARIABLES DEL CAMIÓN (INBOUND) ---
@@ -77,6 +78,11 @@ window.addEventListener('load', () => {
     let draggedItem = null;
     let dragOffsetX = 0, dragOffsetY = 0;
 
+    // NUEVO: Variables para la previsualización del Drop
+    let previewC = -1;
+    let previewR = -1;
+    let isHoveringMain = false;
+
     // --- INICIALIZACIÓN POR NIVELES ---
     function initLayoutAndGrids(isNewGame) {
         gridCols = 10;
@@ -91,7 +97,10 @@ window.addEventListener('load', () => {
             level = 1;
         }
 
-        hasCollapsed = false; // Reiniciamos el centinela al inicio del nivel
+        hasCollapsed = false; 
+        previewC = -1;
+        previewR = -1;
+        isHoveringMain = false;
 
         const margin = 20;
         cellSize = Math.floor((canvas.width - (margin * 2)) / gridCols);
@@ -114,7 +123,7 @@ window.addEventListener('load', () => {
         } else if (level === 2) {
             maxItems = 12;
             itemSpawnInterval = 5;
-            itemFirstSpawnDelay = 2; // MODIFICADO: Evitamos colisión con el segundo 60
+            itemFirstSpawnDelay = 2; 
             totalOrdersLevel = 5;
             totalOrdersLeft = 5;
             orderSpawnInterval = 11;
@@ -173,7 +182,6 @@ window.addEventListener('load', () => {
         }
     }
 
-    // --- GENERACIÓN DE PEDIDOS INTELIGENTE ---
     function generateOrder(numItems) {
         let availableIds = [];
         let boardCounts = {};
@@ -273,13 +281,10 @@ window.addEventListener('load', () => {
         };
     }
 
-    // --- SPAWN DE CAMIÓN (INBOUNDS) ---
     function spawnPiece() {
         if (spawnedItemsCount >= maxItems) return;
 
         let validItems = ARTICULOS.filter(item => canFitInMain(item.matrix));
-        
-        // Si el almacén está lleno, marcamos el colapso
         if (validItems.length === 0) {
             hasCollapsed = true; 
             return; 
@@ -300,7 +305,6 @@ window.addEventListener('load', () => {
             if (foundSpot) break;
         }
 
-        // Si la zona INBOUNDS está colapsada, no cabe
         if (!foundSpot) {
             hasCollapsed = true;
             return; 
@@ -325,7 +329,7 @@ window.addEventListener('load', () => {
         spawnedItemsCount++;
     }
 
-    // --- DRAG AND DROP ---
+    // --- DRAG AND DROP CON PREVISUALIZACIÓN ---
     function getPointerPos(e) {
         const rect = canvas.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -336,6 +340,10 @@ window.addEventListener('load', () => {
     function onPointerDown(e) {
         if (gameState !== 'JUGANDO') return;
         const { x, y } = getPointerPos(e);
+
+        previewC = -1;
+        previewR = -1;
+        isHoveringMain = false;
 
         for (let i = itemsInPlay.length - 1; i >= 0; i--) {
             const item = itemsInPlay[i];
@@ -367,8 +375,39 @@ window.addEventListener('load', () => {
         if (!draggedItem || gameState !== 'JUGANDO') return;
         e.preventDefault(); 
         const { x, y } = getPointerPos(e);
+        
+        // Actualizamos la posición física de la pieza que arrastramos
         draggedItem.x = x - dragOffsetX;
         draggedItem.y = y - dragOffsetY;
+
+        // NUEVO: Lógica de Previsualización (Sombra)
+        const centerX = draggedItem.x + ((draggedItem.matrix[0].length * cellSize) / 2);
+        const centerY = draggedItem.y + ((draggedItem.matrix.length * cellSize) / 2);
+
+        // Verificamos si estamos encima del área del Almacén Principal
+        if (centerX >= boardOffsetX && centerX <= boardOffsetX + (gridCols * cellSize) &&
+            centerY >= boardOffsetY && centerY <= boardOffsetY + (gridRows * cellSize)) {
+            
+            isHoveringMain = true;
+
+            // Calculamos en qué celda caería la pieza
+            const gridC = Math.round((centerX - boardOffsetX) / cellSize) - Math.floor(draggedItem.matrix[0].length / 2);
+            const gridR = Math.round((centerY - boardOffsetY) / cellSize) - Math.floor(draggedItem.matrix.length / 2);
+
+            // Si la pieza cabe en ese hueco, guardamos las coordenadas para dibujar la sombra
+            if (canFitInGrid(mainGridData, gridCols, gridRows, draggedItem.matrix, gridC, gridR)) {
+                previewC = gridC;
+                previewR = gridR;
+            } else {
+                // Si no cabe (ocupado o fuera de límites), no mostramos sombra
+                previewC = -1;
+                previewR = -1;
+            }
+        } else {
+            isHoveringMain = false;
+            previewC = -1;
+            previewR = -1;
+        }
     }
 
     function onPointerUp(e) {
@@ -376,6 +415,7 @@ window.addEventListener('load', () => {
 
         let droppedInOrder = false;
 
+        // 1. INTENTAR DEPOSITAR EN PEDIDO (OUTBOUNDS)
         if (level >= 2 && draggedItem.originalZone === 'MAIN') {
             for (let i = 0; i < 3; i++) {
                 let order = activeOrders[i];
@@ -407,21 +447,18 @@ window.addEventListener('load', () => {
             }
         }
 
+        // 2. INTENTAR DEPOSITAR EN ALMACÉN (USANDO LA PREVISUALIZACIÓN)
         if (!droppedInOrder) {
-            const centerX = draggedItem.x + ((draggedItem.matrix[0].length * cellSize) / 2);
-            const centerY = draggedItem.y + ((draggedItem.matrix.length * cellSize) / 2);
-
-            const gridC = Math.round((centerX - boardOffsetX) / cellSize) - Math.floor(draggedItem.matrix[0].length / 2);
-            const gridR = Math.round((centerY - boardOffsetY) / cellSize) - Math.floor(draggedItem.matrix.length / 2);
-
-            if (canFitInGrid(mainGridData, gridCols, gridRows, draggedItem.matrix, gridC, gridR)) {
-                draggedItem.x = boardOffsetX + (gridC * cellSize);
-                draggedItem.y = boardOffsetY + (gridR * cellSize);
+            // Si teníamos una previsualización válida activa, lo colocamos exactamente ahí
+            if (isHoveringMain && previewC !== -1 && previewR !== -1) {
+                draggedItem.x = boardOffsetX + (previewC * cellSize);
+                draggedItem.y = boardOffsetY + (previewR * cellSize);
                 draggedItem.inZone = 'MAIN';
-                draggedItem.gridC = gridC;
-                draggedItem.gridR = gridR;
-                updateGridOcupancy(mainGridData, draggedItem.matrix, gridC, gridR, 1);
+                draggedItem.gridC = previewC;
+                draggedItem.gridR = previewR;
+                updateGridOcupancy(mainGridData, draggedItem.matrix, previewC, previewR, 1);
             } else {
+                // Si no, la pieza es devuelta rebotando a su zona de origen
                 draggedItem.inZone = draggedItem.originalZone;
                 draggedItem.gridC = draggedItem.originalC;
                 draggedItem.gridR = draggedItem.originalR;
@@ -438,7 +475,11 @@ window.addEventListener('load', () => {
             }
         }
         
+        // Limpiamos los datos de arrastre y previsualización
         draggedItem = null;
+        previewC = -1;
+        previewR = -1;
+        isHoveringMain = false;
     }
 
     canvas.addEventListener('mousedown', onPointerDown);
@@ -541,7 +582,6 @@ window.addEventListener('load', () => {
             gameTimeLeft -= deltaTime;
             let timeElapsed = 60 - gameTimeLeft;
             
-            // 1. SISTEMA DE GENERACIÓN DE PEDIDOS (OUTBOUNDS)
             if (level >= 2 && pendingOrderConfigs.length > 0) {
                 let spawnedOrdersCount = totalOrdersLevel - pendingOrderConfigs.length;
                 let shouldSpawnOrder = false;
@@ -574,7 +614,6 @@ window.addEventListener('load', () => {
                 });
             }
 
-            // 2. SISTEMA DE ENTRADA (INBOUNDS)
             if (spawnedItemsCount < maxItems && !hasCollapsed) {
                 let shouldSpawnItem = false;
                 
@@ -590,7 +629,6 @@ window.addEventListener('load', () => {
                 }
             }
 
-            // 3. VERIFICACIÓN DE DERROTAS AL ACABAR EL TIEMPO
             if (gameTimeLeft <= 0) {
                 if (level === 1) {
                     if (hasCollapsed) {
@@ -600,7 +638,6 @@ window.addEventListener('load', () => {
                     }
                 } else if (level >= 2) {
                     let missingOrders = totalOrdersLeft > 0;
-                    // Ya no usamos matematicas de tiempo, comprobamos directamente la bandera de colapso físico
                     let missingItems = hasCollapsed; 
 
                     if (missingOrders && missingItems) {
@@ -614,7 +651,6 @@ window.addEventListener('load', () => {
                     }
                 }
             } 
-            // 4. VERIFICACIÓN DE VICTORIA POR PERFECCIÓN
             else if (spawnedItemsCount === maxItems && !hasCollapsed) {
                 const allInMain = itemsInPlay.every(item => item.inZone === 'MAIN' && !item.isAnimating);
                 if (level === 1 && allInMain) {
@@ -665,10 +701,20 @@ window.addEventListener('load', () => {
             });
         }
 
+        // Dibujar las piezas colocadas o estáticas
         itemsInPlay.forEach(item => {
-            if (item !== draggedItem) drawItem(item); 
+            if (item !== draggedItem) drawItem(item, item.x, item.y, 1.0); 
         });
-        if (draggedItem) drawItem(draggedItem); 
+
+        // NUEVO: Dibujar la sombra de previsualización si corresponde
+        if (draggedItem && isHoveringMain && previewC !== -1 && previewR !== -1) {
+            const previewX = boardOffsetX + (previewC * cellSize);
+            const previewY = boardOffsetY + (previewR * cellSize);
+            drawItem(draggedItem, previewX, previewY, 0.5); // 50% de opacidad
+        }
+
+        // Finalmente, dibujar la pieza real que estamos arrastrando (opaca)
+        if (draggedItem) drawItem(draggedItem, draggedItem.x, draggedItem.y, 1.0); 
     }
 
     function drawGrid(gridArray, offsetX, offsetY, borderColor, bgColor) {
@@ -684,7 +730,10 @@ window.addEventListener('load', () => {
         }
     }
 
-    function drawItem(item) {
+    // MODIFICADO: Ahora `drawItem` recibe parámetros de coordenadas y transparencia
+    function drawItem(item, xPos, yPos, alphaOpacity) {
+        ctx.save();
+        ctx.globalAlpha = alphaOpacity;
         ctx.fillStyle = item.color;
         ctx.strokeStyle = '#ffffff'; 
         ctx.lineWidth = 2;
@@ -692,13 +741,14 @@ window.addEventListener('load', () => {
         for (let r = 0; r < item.matrix.length; r++) {
             for (let c = 0; c < item.matrix[r].length; c++) {
                 if (item.matrix[r][c] === 1) {
-                    const x = item.x + (c * cellSize);
-                    const y = item.y + (r * cellSize);
-                    ctx.fillRect(x, y, cellSize, cellSize);
-                    ctx.strokeRect(x, y, cellSize, cellSize);
+                    const blockX = xPos + (c * cellSize);
+                    const blockY = yPos + (r * cellSize);
+                    ctx.fillRect(blockX, blockY, cellSize, cellSize);
+                    ctx.strokeRect(blockX, blockY, cellSize, cellSize);
                 }
             }
         }
+        ctx.restore();
     }
 
     function drawOrder(order, slotIndex) {
