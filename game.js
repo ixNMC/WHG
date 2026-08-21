@@ -1,7 +1,7 @@
 /**
  * Proyecto: Logística Puzzle
- * Versión: v.017
- * Descripción: Implementación de la previsualización (Ghost Drop) transparente al arrastrar al ALMACÉN.
+ * Versión: v.018
+ * Descripción: Los pedidos (Zona OUT) ahora son movibles y organizables por el jugador.
  */
 
 window.addEventListener('load', () => {
@@ -74,14 +74,16 @@ window.addEventListener('load', () => {
         { id: 'G', color: 'orange', matrix: [[0, 1], [1, 1]] }
     ];
 
+    // Variables de arrastre de artículos
     let itemsInPlay = [];
     let draggedItem = null;
     let dragOffsetX = 0, dragOffsetY = 0;
-
-    // NUEVO: Variables para la previsualización del Drop
-    let previewC = -1;
-    let previewR = -1;
+    let previewC = -1, previewR = -1;
     let isHoveringMain = false;
+
+    // NUEVO: Variables de arrastre de Pedidos (Zona OUT)
+    let draggedOrder = null;
+    let dragOrderOffsetX = 0, dragOrderOffsetY = 0;
 
     // --- INICIALIZACIÓN POR NIVELES ---
     function initLayoutAndGrids(isNewGame) {
@@ -101,6 +103,10 @@ window.addEventListener('load', () => {
         previewC = -1;
         previewR = -1;
         isHoveringMain = false;
+        
+        // Resetear variables de arrastre
+        draggedItem = null;
+        draggedOrder = null;
 
         const margin = 20;
         cellSize = Math.floor((canvas.width - (margin * 2)) / gridCols);
@@ -268,7 +274,10 @@ window.addEventListener('load', () => {
             if (p.c < minC) minC = p.c;
         });
 
+        // NUEVO: El pedido se crea pero su X e Y se asignarán al colocarlo en el slot
         return {
+            x: 0, 
+            y: 0,
             isAnimatingOut: false,
             xOffset: 0,
             requirements: placements.map(p => ({
@@ -329,7 +338,7 @@ window.addEventListener('load', () => {
         spawnedItemsCount++;
     }
 
-    // --- DRAG AND DROP CON PREVISUALIZACIÓN ---
+    // --- DRAG AND DROP (ARTÍCULOS Y PEDIDOS) ---
     function getPointerPos(e) {
         const rect = canvas.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -345,6 +354,36 @@ window.addEventListener('load', () => {
         previewR = -1;
         isHoveringMain = false;
 
+        // 1. PRIMERO: Comprobar si estamos tocando un Pedido en la Zona OUTBOUNDS
+        if (level >= 2) {
+            for (let i = 0; i < activeOrders.length; i++) {
+                let order = activeOrders[i];
+                if (order && !order.isAnimatingOut) {
+                    
+                    // Calcular el tamaño total (ancho y alto) de este pedido
+                    let maxC = 0, maxR = 0;
+                    order.requirements.forEach(req => {
+                        let reqMaxC = req.c + req.item.matrix[0].length;
+                        let reqMaxR = req.r + req.item.matrix.length;
+                        if (reqMaxC > maxC) maxC = reqMaxC;
+                        if (reqMaxR > maxR) maxR = reqMaxR;
+                    });
+                    
+                    let orderWidth = maxC * cellSize;
+                    let orderHeight = maxR * cellSize;
+
+                    // Si tocamos dentro del área del pedido
+                    if (x >= order.x && x <= order.x + orderWidth && y >= order.y && y <= order.y + orderHeight) {
+                        draggedOrder = order;
+                        dragOrderOffsetX = x - order.x;
+                        dragOrderOffsetY = y - order.y;
+                        return; // Si cogemos un pedido, detenemos la búsqueda
+                    }
+                }
+            }
+        }
+
+        // 2. SEGUNDO: Si no hemos tocado un pedido, comprobar si tocamos un artículo
         for (let i = itemsInPlay.length - 1; i >= 0; i--) {
             const item = itemsInPlay[i];
             if (!item.isAnimating && (item.inZone === 'INBOUNDS' || item.inZone === 'MAIN')) {
@@ -372,46 +411,68 @@ window.addEventListener('load', () => {
     }
 
     function onPointerMove(e) {
-        if (!draggedItem || gameState !== 'JUGANDO') return;
+        if (gameState !== 'JUGANDO') return;
         e.preventDefault(); 
         const { x, y } = getPointerPos(e);
         
-        // Actualizamos la posición física de la pieza que arrastramos
-        draggedItem.x = x - dragOffsetX;
-        draggedItem.y = y - dragOffsetY;
-
-        // NUEVO: Lógica de Previsualización (Sombra)
-        const centerX = draggedItem.x + ((draggedItem.matrix[0].length * cellSize) / 2);
-        const centerY = draggedItem.y + ((draggedItem.matrix.length * cellSize) / 2);
-
-        // Verificamos si estamos encima del área del Almacén Principal
-        if (centerX >= boardOffsetX && centerX <= boardOffsetX + (gridCols * cellSize) &&
-            centerY >= boardOffsetY && centerY <= boardOffsetY + (gridRows * cellSize)) {
+        // A. Si estamos moviendo un PEDIDO (Zona OUT)
+        if (draggedOrder) {
+            let newX = x - dragOrderOffsetX;
+            let newY = y - dragOrderOffsetY;
             
-            isHoveringMain = true;
+            // Restricción: No puede salirse por la izquierda de la Zona OUT (mitad de la pantalla)
+            if (newX < outboundOffsetX - 10) newX = outboundOffsetX - 10;
+            
+            // Restricción: No puede subir por encima del texto de la zona OUT
+            if (newY < outboundOffsetY - 40) newY = outboundOffsetY - 40;
+            
+            // Actualizamos coordenadas
+            draggedOrder.x = newX;
+            draggedOrder.y = newY;
+            return;
+        }
 
-            // Calculamos en qué celda caería la pieza
-            const gridC = Math.round((centerX - boardOffsetX) / cellSize) - Math.floor(draggedItem.matrix[0].length / 2);
-            const gridR = Math.round((centerY - boardOffsetY) / cellSize) - Math.floor(draggedItem.matrix.length / 2);
+        // B. Si estamos moviendo un ARTÍCULO (Cajas)
+        if (draggedItem) {
+            draggedItem.x = x - dragOffsetX;
+            draggedItem.y = y - dragOffsetY;
 
-            // Si la pieza cabe en ese hueco, guardamos las coordenadas para dibujar la sombra
-            if (canFitInGrid(mainGridData, gridCols, gridRows, draggedItem.matrix, gridC, gridR)) {
-                previewC = gridC;
-                previewR = gridR;
+            const centerX = draggedItem.x + ((draggedItem.matrix[0].length * cellSize) / 2);
+            const centerY = draggedItem.y + ((draggedItem.matrix.length * cellSize) / 2);
+
+            if (centerX >= boardOffsetX && centerX <= boardOffsetX + (gridCols * cellSize) &&
+                centerY >= boardOffsetY && centerY <= boardOffsetY + (gridRows * cellSize)) {
+                
+                isHoveringMain = true;
+                const gridC = Math.round((centerX - boardOffsetX) / cellSize) - Math.floor(draggedItem.matrix[0].length / 2);
+                const gridR = Math.round((centerY - boardOffsetY) / cellSize) - Math.floor(draggedItem.matrix.length / 2);
+
+                if (canFitInGrid(mainGridData, gridCols, gridRows, draggedItem.matrix, gridC, gridR)) {
+                    previewC = gridC;
+                    previewR = gridR;
+                } else {
+                    previewC = -1;
+                    previewR = -1;
+                }
             } else {
-                // Si no cabe (ocupado o fuera de límites), no mostramos sombra
+                isHoveringMain = false;
                 previewC = -1;
                 previewR = -1;
             }
-        } else {
-            isHoveringMain = false;
-            previewC = -1;
-            previewR = -1;
         }
     }
 
     function onPointerUp(e) {
-        if (!draggedItem || gameState !== 'JUGANDO') return;
+        if (gameState !== 'JUGANDO') return;
+
+        // A. Si soltamos un PEDIDO, simplemente lo dejamos donde está
+        if (draggedOrder) {
+            draggedOrder = null;
+            return;
+        }
+
+        // B. Si soltamos un ARTÍCULO, aplicamos lógicas de encaje
+        if (!draggedItem) return;
 
         let droppedInOrder = false;
 
@@ -421,13 +482,11 @@ window.addEventListener('load', () => {
                 let order = activeOrders[i];
                 if (!order || order.isAnimatingOut) continue;
 
-                let orderBaseX = outboundOffsetX;
-                let orderBaseY = outboundOffsetY + (i * 3.5 * cellSize); 
-
+                // NUEVO: Usamos las coordenadas móviles del pedido (order.x, order.y)
                 for (let req of order.requirements) {
                     if (!req.placed && req.id === draggedItem.id) {
-                        let targetX = orderBaseX + req.c * cellSize;
-                        let targetY = orderBaseY + req.r * cellSize;
+                        let targetX = order.x + req.c * cellSize;
+                        let targetY = order.y + req.r * cellSize;
 
                         let dist = Math.hypot(draggedItem.x - targetX, draggedItem.y - targetY);
                         if (dist < cellSize * 1.5) { 
@@ -449,7 +508,6 @@ window.addEventListener('load', () => {
 
         // 2. INTENTAR DEPOSITAR EN ALMACÉN (USANDO LA PREVISUALIZACIÓN)
         if (!droppedInOrder) {
-            // Si teníamos una previsualización válida activa, lo colocamos exactamente ahí
             if (isHoveringMain && previewC !== -1 && previewR !== -1) {
                 draggedItem.x = boardOffsetX + (previewC * cellSize);
                 draggedItem.y = boardOffsetY + (previewR * cellSize);
@@ -458,7 +516,6 @@ window.addEventListener('load', () => {
                 draggedItem.gridR = previewR;
                 updateGridOcupancy(mainGridData, draggedItem.matrix, previewC, previewR, 1);
             } else {
-                // Si no, la pieza es devuelta rebotando a su zona de origen
                 draggedItem.inZone = draggedItem.originalZone;
                 draggedItem.gridC = draggedItem.originalC;
                 draggedItem.gridR = draggedItem.originalR;
@@ -475,7 +532,6 @@ window.addEventListener('load', () => {
             }
         }
         
-        // Limpiamos los datos de arrastre y previsualización
         draggedItem = null;
         previewC = -1;
         previewR = -1;
@@ -596,7 +652,13 @@ window.addEventListener('load', () => {
                     let emptySlot = activeOrders.findIndex(o => o === null);
                     if (emptySlot !== -1) {
                         let numItems = pendingOrderConfigs.shift();
-                        activeOrders[emptySlot] = generateOrder(numItems);
+                        let newOrder = generateOrder(numItems);
+                        
+                        // NUEVO: Asignar coordenadas iniciales X e Y al crear el pedido
+                        newOrder.x = outboundOffsetX;
+                        newOrder.y = outboundOffsetY + (emptySlot * 3.5 * cellSize);
+                        
+                        activeOrders[emptySlot] = newOrder;
                         lastOrderSpawnTime = timeElapsed; 
                     }
                 }
@@ -606,7 +668,7 @@ window.addEventListener('load', () => {
                 activeOrders.forEach((order, index) => {
                     if (order && order.isAnimatingOut) {
                         order.xOffset += 500 * deltaTime; 
-                        if (outboundOffsetX + order.xOffset > canvas.width) {
+                        if (order.x + order.xOffset > canvas.width) {
                             activeOrders[index] = null; 
                             totalOrdersLeft--;
                         }
@@ -696,24 +758,22 @@ window.addEventListener('load', () => {
             ctx.fillText(`Pedidos Pendientes: ${totalOrdersLeft}`, canvas.width * 0.75, inboundOffsetY - 20);
             ctx.textAlign = 'left';
 
-            activeOrders.forEach((order, index) => {
-                if (order) drawOrder(order, index);
+            // Dibuja los pedidos en sus coordenadas actuales
+            activeOrders.forEach(order => {
+                if (order) drawOrder(order);
             });
         }
 
-        // Dibujar las piezas colocadas o estáticas
         itemsInPlay.forEach(item => {
             if (item !== draggedItem) drawItem(item, item.x, item.y, 1.0); 
         });
 
-        // NUEVO: Dibujar la sombra de previsualización si corresponde
         if (draggedItem && isHoveringMain && previewC !== -1 && previewR !== -1) {
             const previewX = boardOffsetX + (previewC * cellSize);
             const previewY = boardOffsetY + (previewR * cellSize);
-            drawItem(draggedItem, previewX, previewY, 0.5); // 50% de opacidad
+            drawItem(draggedItem, previewX, previewY, 0.5); 
         }
 
-        // Finalmente, dibujar la pieza real que estamos arrastrando (opaca)
         if (draggedItem) drawItem(draggedItem, draggedItem.x, draggedItem.y, 1.0); 
     }
 
@@ -730,7 +790,6 @@ window.addEventListener('load', () => {
         }
     }
 
-    // MODIFICADO: Ahora `drawItem` recibe parámetros de coordenadas y transparencia
     function drawItem(item, xPos, yPos, alphaOpacity) {
         ctx.save();
         ctx.globalAlpha = alphaOpacity;
@@ -751,9 +810,10 @@ window.addEventListener('load', () => {
         ctx.restore();
     }
 
-    function drawOrder(order, slotIndex) {
-        let orderBaseX = outboundOffsetX;
-        let orderBaseY = outboundOffsetY + (slotIndex * 3.5 * cellSize); 
+    // NUEVO: drawOrder ahora usa las coordenadas X e Y guardadas en el objeto order
+    function drawOrder(order) {
+        let orderBaseX = order.x;
+        let orderBaseY = order.y; 
 
         for (let req of order.requirements) {
             let x = orderBaseX + req.c * cellSize;
