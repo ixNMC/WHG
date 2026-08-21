@@ -1,7 +1,7 @@
 /**
  * Proyecto: Logística Puzzle
- * Versión: v.018
- * Descripción: Los pedidos (Zona OUT) ahora son movibles y organizables por el jugador.
+ * Versión: v.019
+ * Descripción: Implementación del Nivel 4 con tiempo dinámico (88s) y pedidos de hasta 5 artículos.
  */
 
 window.addEventListener('load', () => {
@@ -18,7 +18,6 @@ window.addEventListener('load', () => {
     const nextLevelBtn = document.getElementById('next-level-btn');
     const pauseBtn = document.getElementById('pause-btn');
     
-    // Textos
     const modalTitle = document.getElementById('modal-title');
     const modalText = document.getElementById('modal-text');
     const levelTitle = document.getElementById('level-title');
@@ -30,6 +29,7 @@ window.addEventListener('load', () => {
 
     // --- VARIABLES GLOBALES DE ESTADO Y TIEMPO ---
     let gameState = 'ESPERANDO';
+    let levelDuration = 60; // NUEVO: Tiempo total adaptable según el nivel
     let gameTimeLeft = 60; 
     let lastTime = 0;
     
@@ -74,14 +74,12 @@ window.addEventListener('load', () => {
         { id: 'G', color: 'orange', matrix: [[0, 1], [1, 1]] }
     ];
 
-    // Variables de arrastre de artículos
     let itemsInPlay = [];
     let draggedItem = null;
     let dragOffsetX = 0, dragOffsetY = 0;
     let previewC = -1, previewR = -1;
     let isHoveringMain = false;
 
-    // NUEVO: Variables de arrastre de Pedidos (Zona OUT)
     let draggedOrder = null;
     let dragOrderOffsetX = 0, dragOrderOffsetY = 0;
 
@@ -103,8 +101,6 @@ window.addEventListener('load', () => {
         previewC = -1;
         previewR = -1;
         isHoveringMain = false;
-        
-        // Resetear variables de arrastre
         draggedItem = null;
         draggedOrder = null;
 
@@ -119,7 +115,9 @@ window.addEventListener('load', () => {
         outboundOffsetX = canvas.width / 2 + 10;
         outboundOffsetY = inboundOffsetY; 
 
+        // CONFIGURACIÓN DE PARÁMETROS POR NIVEL
         if (level === 1) {
+            levelDuration = 60;
             maxItems = 18;
             itemSpawnInterval = 3;
             itemFirstSpawnDelay = 3; 
@@ -127,6 +125,7 @@ window.addEventListener('load', () => {
             totalOrdersLeft = 0;
             pendingOrderConfigs = [];
         } else if (level === 2) {
+            levelDuration = 60;
             maxItems = 12;
             itemSpawnInterval = 5;
             itemFirstSpawnDelay = 2; 
@@ -135,7 +134,8 @@ window.addEventListener('load', () => {
             orderSpawnInterval = 11;
             orderFirstSpawnDelay = 5;
             pendingOrderConfigs = [1, 2, 1, 3, 2]; 
-        } else if (level >= 3) { 
+        } else if (level === 3) {
+            levelDuration = 60;
             maxItems = 18;
             itemSpawnInterval = 3;
             itemFirstSpawnDelay = 2; 
@@ -145,6 +145,20 @@ window.addEventListener('load', () => {
             orderFirstSpawnDelay = 3; 
             
             let configs = [1, 2, 2, 3, 3, 4, 4];
+            configs.sort(() => Math.random() - 0.5);
+            pendingOrderConfigs = configs;
+        } else if (level >= 4) { // Nivel 4 (y herencia para los siguientes por ahora)
+            levelDuration = 88; // 1 minuto y 28 segundos
+            maxItems = 22;
+            itemSpawnInterval = 4;
+            itemFirstSpawnDelay = 1; // Aparece al primer segundo (segundo 87)
+            totalOrdersLevel = 9;
+            totalOrdersLeft = 9;
+            orderSpawnInterval = 8; 
+            orderFirstSpawnDelay = 8; // Espaciamos el primero para ajustarlo al ciclo total
+            
+            // Configuración del Nivel 4: 2x2, 3x3, 2x4, 2x5
+            let configs = [2, 2, 3, 3, 3, 4, 4, 5, 5];
             configs.sort(() => Math.random() - 0.5);
             pendingOrderConfigs = configs;
         }
@@ -188,6 +202,7 @@ window.addEventListener('load', () => {
         }
     }
 
+    // Generador de pedidos compactos
     function generateOrder(numItems) {
         let availableIds = [];
         let boardCounts = {};
@@ -274,7 +289,6 @@ window.addEventListener('load', () => {
             if (p.c < minC) minC = p.c;
         });
 
-        // NUEVO: El pedido se crea pero su X e Y se asignarán al colocarlo en el slot
         return {
             x: 0, 
             y: 0,
@@ -338,7 +352,7 @@ window.addEventListener('load', () => {
         spawnedItemsCount++;
     }
 
-    // --- DRAG AND DROP (ARTÍCULOS Y PEDIDOS) ---
+    // --- CONTROLES DE ARRASTRE ---
     function getPointerPos(e) {
         const rect = canvas.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -354,13 +368,11 @@ window.addEventListener('load', () => {
         previewR = -1;
         isHoveringMain = false;
 
-        // 1. PRIMERO: Comprobar si estamos tocando un Pedido en la Zona OUTBOUNDS
+        // Comprobar si tocamos un Pedido
         if (level >= 2) {
             for (let i = 0; i < activeOrders.length; i++) {
                 let order = activeOrders[i];
                 if (order && !order.isAnimatingOut) {
-                    
-                    // Calcular el tamaño total (ancho y alto) de este pedido
                     let maxC = 0, maxR = 0;
                     order.requirements.forEach(req => {
                         let reqMaxC = req.c + req.item.matrix[0].length;
@@ -372,18 +384,17 @@ window.addEventListener('load', () => {
                     let orderWidth = maxC * cellSize;
                     let orderHeight = maxR * cellSize;
 
-                    // Si tocamos dentro del área del pedido
                     if (x >= order.x && x <= order.x + orderWidth && y >= order.y && y <= order.y + orderHeight) {
                         draggedOrder = order;
                         dragOrderOffsetX = x - order.x;
                         dragOrderOffsetY = y - order.y;
-                        return; // Si cogemos un pedido, detenemos la búsqueda
+                        return; 
                     }
                 }
             }
         }
 
-        // 2. SEGUNDO: Si no hemos tocado un pedido, comprobar si tocamos un artículo
+        // Comprobar si tocamos un artículo
         for (let i = itemsInPlay.length - 1; i >= 0; i--) {
             const item = itemsInPlay[i];
             if (!item.isAnimating && (item.inZone === 'INBOUNDS' || item.inZone === 'MAIN')) {
@@ -415,24 +426,18 @@ window.addEventListener('load', () => {
         e.preventDefault(); 
         const { x, y } = getPointerPos(e);
         
-        // A. Si estamos moviendo un PEDIDO (Zona OUT)
         if (draggedOrder) {
             let newX = x - dragOrderOffsetX;
             let newY = y - dragOrderOffsetY;
             
-            // Restricción: No puede salirse por la izquierda de la Zona OUT (mitad de la pantalla)
             if (newX < outboundOffsetX - 10) newX = outboundOffsetX - 10;
-            
-            // Restricción: No puede subir por encima del texto de la zona OUT
             if (newY < outboundOffsetY - 40) newY = outboundOffsetY - 40;
             
-            // Actualizamos coordenadas
             draggedOrder.x = newX;
             draggedOrder.y = newY;
             return;
         }
 
-        // B. Si estamos moviendo un ARTÍCULO (Cajas)
         if (draggedItem) {
             draggedItem.x = x - dragOffsetX;
             draggedItem.y = y - dragOffsetY;
@@ -465,24 +470,20 @@ window.addEventListener('load', () => {
     function onPointerUp(e) {
         if (gameState !== 'JUGANDO') return;
 
-        // A. Si soltamos un PEDIDO, simplemente lo dejamos donde está
         if (draggedOrder) {
             draggedOrder = null;
             return;
         }
 
-        // B. Si soltamos un ARTÍCULO, aplicamos lógicas de encaje
         if (!draggedItem) return;
 
         let droppedInOrder = false;
 
-        // 1. INTENTAR DEPOSITAR EN PEDIDO (OUTBOUNDS)
         if (level >= 2 && draggedItem.originalZone === 'MAIN') {
             for (let i = 0; i < 3; i++) {
                 let order = activeOrders[i];
                 if (!order || order.isAnimatingOut) continue;
 
-                // NUEVO: Usamos las coordenadas móviles del pedido (order.x, order.y)
                 for (let req of order.requirements) {
                     if (!req.placed && req.id === draggedItem.id) {
                         let targetX = order.x + req.c * cellSize;
@@ -506,7 +507,6 @@ window.addEventListener('load', () => {
             }
         }
 
-        // 2. INTENTAR DEPOSITAR EN ALMACÉN (USANDO LA PREVISUALIZACIÓN)
         if (!droppedInOrder) {
             if (isHoveringMain && previewC !== -1 && previewR !== -1) {
                 draggedItem.x = boardOffsetX + (previewC * cellSize);
@@ -573,7 +573,7 @@ window.addEventListener('load', () => {
                     initLayoutAndGrids(isNewGame);
                     
                     spawnedItemsCount = 0; 
-                    gameTimeLeft = 60;
+                    gameTimeLeft = levelDuration; // NUEVO: Toma el tiempo específico del nivel
                     lastTime = performance.now();
                     gameState = 'JUGANDO';
                 }, 500);
@@ -636,7 +636,7 @@ window.addEventListener('load', () => {
 
         if (gameState === 'JUGANDO') {
             gameTimeLeft -= deltaTime;
-            let timeElapsed = 60 - gameTimeLeft;
+            let timeElapsed = levelDuration - gameTimeLeft; // Calculado sobre el tiempo dinámico
             
             if (level >= 2 && pendingOrderConfigs.length > 0) {
                 let spawnedOrdersCount = totalOrdersLevel - pendingOrderConfigs.length;
@@ -654,7 +654,6 @@ window.addEventListener('load', () => {
                         let numItems = pendingOrderConfigs.shift();
                         let newOrder = generateOrder(numItems);
                         
-                        // NUEVO: Asignar coordenadas iniciales X e Y al crear el pedido
                         newOrder.x = outboundOffsetX;
                         newOrder.y = outboundOffsetY + (emptySlot * 3.5 * cellSize);
                         
@@ -758,7 +757,6 @@ window.addEventListener('load', () => {
             ctx.fillText(`Pedidos Pendientes: ${totalOrdersLeft}`, canvas.width * 0.75, inboundOffsetY - 20);
             ctx.textAlign = 'left';
 
-            // Dibuja los pedidos en sus coordenadas actuales
             activeOrders.forEach(order => {
                 if (order) drawOrder(order);
             });
@@ -810,7 +808,6 @@ window.addEventListener('load', () => {
         ctx.restore();
     }
 
-    // NUEVO: drawOrder ahora usa las coordenadas X e Y guardadas en el objeto order
     function drawOrder(order) {
         let orderBaseX = order.x;
         let orderBaseY = order.y; 
